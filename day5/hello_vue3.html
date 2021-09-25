@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<script src="http://unpkg.com/vue@next"></script>
+<!-- 随便整个hello vue3 -->
+<div id="app">{{haha}}</div>
+
+
+<script>
+	const app=Vue.createApp({
+		// vue3 react以函数方式支持ts的类型系统
+		// 声明 参数都挺明显
+		// angular vue2以class支持
+		data(){
+			return{
+				haha: 'hello'
+			}
+		},
+		// 有个优先级问题
+		setup(){
+			// 没有this
+			const state=Vue.reactive({
+				haha: 'vue3'
+			})
+			return state
+		}
+	});
+	app.mount('#app');
+</script>

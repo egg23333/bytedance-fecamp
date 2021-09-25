@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<!-- mini-vue -->
+
+<div id="app">{{title}}</div>
+<script>
+	const Vue={
+		// 扩展性
+		// 让用户把平台操作丢这
+		createRenderer({querySelector,insert}){
+			return {
+				// options?
+				// 实际操作不应该与平台相关
+				// 类似这样套一层
+				createApp(options){
+					return {
+						mount(selector){
+							console.log('mount');
+							// 找到宿主元素
+							const parent=querySelector(selector);
+							// 渲染页面 编译模板
+							// 现实处理很复杂 现在就随便搞搞
+							if(!options.render){
+								options.render=this.compile(parent.innerHTML);
+							}
+							
+							//  处理setup和其他
+							if(options.setup){
+								this.setupState=options.setup();
+							}
+							
+							if(options.data){
+								this.dataState=options.data();
+							}
+							
+							const proxy=new Proxy(this,{
+								// 先setup
+								get(target,key){
+									if(target.setupState&&key in target.setupState)
+										return target.setupState[key];
+									else
+										return target.dataState[key];
+								},
+								set(target,key,val){
+									if(target.setupState&&key in target.setupState)
+										target.setupState[key]=val;
+									else
+										target.dataState[key]=val;
+								},
+							});
+							// 渲染页面 用户自己编写的
+							const el=options.render.call(proxy);
+							
+							// 追加到宿主
+							insert(el,parent);
+						},
+						// 返回render
+						// 编译器日常parse -> AST => render
+						compile(template){
+							// 现在随便搞搞
+							return function render(){
+								const h3=document.createElement('h3');
+								h3.textContent=this.title;
+								return h3;
+							}
+						}	
+					}
+				}
+			}
+		},
+		createApp(options){
+			const renderer=Vue.createRenderer({
+				querySelector(sel){
+					return document.querySelector(sel);
+				},
+				insert(el,parent){
+					parent.innerHTML='';
+					parent.appendChild(el);
+					// parent.appendChild(options.render());
+				}
+			});
+			return renderer.createApp(options);
+		}
+	};
+</script>
+<script>
+	const app=Vue.createApp({
+		data(){
+			return{
+				title: 'hello mini-vue'
+			}
+		},
+		setup(){
+			return{
+				title: 'mini-vue hello'
+			}
+		},
+	});
+	app.mount('#app');
+</script>

@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<!-- mini-vue -->
+
+<div id="app"><p>{{title}}</p></div>
+<script>
+	// 表示虚拟dom
+	function h(tag,props,children){
+		return {tag,props,children};
+	};
+	const Vue={
+		// 扩展性
+		// 让用户把平台操作丢这
+		createRenderer({querySelector,insert,createElement,remove}){
+			return {
+				// options
+				// 实际操作不应该与平台相关
+				// 类似这样套一层
+				createApp(options){
+					return {
+						mount(selector){
+							console.log('mount');
+							// 找到宿主元素
+							const parent=querySelector(selector);
+							// 渲染页面 编译模板
+							// 现实处理很复杂 现在就随便搞搞
+							if(!options.render){
+								options.render=this.compile(parent.innerHTML);
+							}
+							
+							//  处理setup和其他
+							if(options.setup){
+								this.setupState=options.setup();
+							}
+							
+							if(options.data){
+								this.data=options.data();
+							}
+							
+							const proxy=new Proxy(this,{
+								// 先setup
+								get(target,key){
+									if(target.setupState&&key in target.setupState)
+										return target.setupState[key];
+									else
+										return target.data[key];
+								},
+								set(target,key,val){
+									if(target.setupState&&key in target.setupState)
+										target.setupState[key]=val;
+									else
+										target.data[key]=val;
+								},
+							});
+							// 跟下面更新有关
+							// effect应对setTimeout
+							// 实际上把update也当做副作用函数
+							this.update = effect(()=>{
+								// 渲染页面 用户自己编写的
+								//const el=options.render.call(proxy);
+								//console.log(el);
+								// 追加到宿主
+								//insert(el,parent);
+								
+								//vnode转化为dom
+								const vnode=options.render.call(proxy);
+								
+								if(this.isMounted!==true){
+									const el=this.createElm(vnode);
+									parent.innerHTML='';
+									insert(el,parent);
+									//init
+									this.isMounted=true;
+								}
+								else{
+									
+									console.log(this._vnode.children);
+									console.log(vnode.children);
+									this.patch(this._vnode,vnode);
+								}
+								this._vnode=vnode;
+							});
+						},
+						patch(n1,n2){
+							// n1是老节点
+							// 更新 必须更新相同节点
+							const el=n2.el=n1.el;
+							if(n1.tag===n2.tag&&n1.key===n2.key){
+								//update
+								
+								//children
+								const oldCh=n1.children;
+								const newCh=n2.children;
+								if(typeof oldCh==='string'){
+									if(typeof newCh==='string'){
+										// text update
+										el.textContent = newCh;
+									}
+									else{
+										// 替换文本为一组子元素
+										el.textContent = '';
+										newCh.forEach(child=>insert(this.createElm(child),el));
+									}
+								}
+								else{
+									if(typeof newCh==='string'){
+										// 替换一组子元素为文本
+										el.textContent=newCh;
+									}
+									else{
+										// 更新子元素
+										// 应该用diff更新
+										// 现在随便整整
+										this.updatechildren(el,oldCh,newCh);
+									}
+								}
+							}
+							else{
+								//replace
+							}
+						},
+						// 批量更新
+						updatechildren(el,oldCh,newCh){
+							const len=Math.min(oldCh.length,newCh.length)
+							// 暴力更新
+							for(let i=0;i<len;i++)
+								this.patch(oldCh[i],newCh[i]);
+							// 长度不一的
+							if (newCh.length > oldCh.length) {
+								// 批量创建并追加
+								// 截取newCh中len后面的部分
+								newCh.slice(len).forEach(child => {
+									insert(this.createElm(child), el)
+								})
+							}
+							else if(newCh.length < oldCh.length) {
+								oldCh.slice(len).forEach(child => {
+									remove(child.el, el)
+								})
+							}
+						},
+						// 遍历建vnode树
+						createElm(vnode){
+							const {tag,props,children}=vnode;
+							// 开点
+							const el = createElement(tag);
+							// 有属性就设置 不写
+							// 递归建树
+							if(typeof children === 'string'){
+								el.textContent=children;
+							}
+							else{
+								children.forEach(child=>insert(this.createElm(child),el));
+							}
+							vnode.el=el;
+							return el;
+						},
+						// vnode
+						// 减少dom操作 加速更新
+						// this.update();
+						// 返回render
+						// 编译器日常parse -> AST => render
+						compile(template){
+							// 现在随便搞搞
+							return function render(){
+								// const h3=document.createElement('h3');
+								// h3.textContent=this.title;
+								// return h3;
+								if(Array.isArray(this.title)){
+									return h('p',null,this.title.map(s=>h('p',null,s)));
+								}
+								else{
+									return h('p',null,this.title);
+								}
+								//return h('h3',null,[
+								//	h('p',null,this.title),
+								//	h('p',null,this.title),
+								//	h('p',null,this.title)
+								//]);
+							};
+						}	
+					}
+				}
+			};
+		},
+		// web平台特供
+		createApp(options){
+			const renderer=Vue.createRenderer({
+				querySelector(sel){
+					return document.querySelector(sel);
+				},
+				insert(el,parent){
+					parent.appendChild(el);
+					//parent.appendChild(parent.render());
+				},
+				createElement(tag){
+					return document.createElement(tag);
+				},
+				remove(el,parent){
+					parent.removeChild(el);
+				},
+			});
+			return renderer.createApp(options);
+		}
+	};
+</script>
+<script>
+	// 拦截用户对代理对象的访问
+	// 从而在值变化时做出相应
+	// 要避免响应式操作与app耦合
+	function reactive(obj){
+		// vue2
+		// Object.defineProperty(obj,{});
+		// 缺点 只能定义一个key 要递归 慢
+		// 缺点 数组拦不到 得单独实现
+		return new Proxy(obj,{
+			// 想要返回值就上Reflect
+			get(target,key){
+				// 建立依赖关系
+				track(target,key);
+				return target[key];
+			},
+			set(target,key,val){
+				// console.log(val);
+				target[key]=val;
+				// 获取依赖关系
+				// 通知更新
+				// 实际就顺便调一下函数再渲染
+				// app.update();
+				trigger(target,key);
+			}
+		});
+	}
+	
+	// 建立映射关系 函数依赖-组件更新函数
+	// vue2 watcher实现
+	// vue3 整一个map结构收集更新函数 上WeakMap
+	// 这里就随便搞搞
+	const targetMap={};
+	// 临时存储副作用函数
+	// 就除了返回值还干了别的事的函数
+	const effectStack=[];
+	function effect(cb){
+		// fn丢进栈里面
+		const eff=function(){
+			try{
+				effectStack.push(eff);
+				cb();
+			}
+			finally{
+				effectStack.pop();
+			}
+		};
+		// 先执行一下
+		eff();
+		return eff;
+	}
+	
+	// 建立map与effectStack的副作用函数间的关系
+	function track(target,key){
+		const effect = effectStack[effectStack.length-1];
+		let map=targetMap[target];
+		// 先判断对象是否存在
+		if(!map){
+			// 初始化成对象
+			map=targetMap[target]={};
+		}
+		
+		// 获取依赖
+		let deps=map[key];
+		if(!deps){			
+			// 正常来说依赖不应该重复 上set
+			// 这里就随便写写 上个数组
+			deps=targetMap[target][key]=[];
+		}
+		
+		// 关系建立
+		if(deps.indexOf(effect)===-1){
+			deps.push(effect);
+		}
+	}
+	
+	// 获取target对应的依赖函数并执行
+	function trigger(target,key){
+		const map=targetMap[target];
+		if(map){
+			const deps=map[key];
+			if(deps){
+				deps.forEach(dep=>dep());
+			}
+		}
+	}
+	
+//	const obj=reactive({foo:'foo'});
+//	effect(()=>{
+//		console.log(obj.foo);
+//	});
+//	obj.foo='foo~';
+	
+	const app=Vue.createApp({
+		setup(){
+			// 响应式
+			// 数据更改时更改
+			const state=reactive({
+				title: 'hello,mini-vue'.split('')
+			});
+			setTimeout(()=>{
+				state.title='mini-vue,hello!'.split('');
+			},1000);
+			return state;
+		},
+	});
+	// mount跟上面的拦截后更新有关
+	app.mount('#app');
+</script>
